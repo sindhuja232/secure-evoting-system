@@ -4,7 +4,7 @@ backend/__pycache__/
 *.pyc
 *.db
 
-# DeepFace weights (VERY BIG FILES)
+# DeepFace weights
 .deepface/
 
 # Node
