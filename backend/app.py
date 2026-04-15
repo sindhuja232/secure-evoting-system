@@ -38,6 +38,9 @@ def verify_face_route():
     voter_id = request.form.get('voter_id')
     photo_file = request.files.get('photo')
 
+    if not voter_id or not photo_file:
+        return jsonify({'success': False, 'message': 'Missing data'})
+
     conn = get_db_connection()
     voter = conn.execute(
         "SELECT photo_path, has_voted, constituency_id FROM voters WHERE voter_id=?",
@@ -46,36 +49,49 @@ def verify_face_route():
     conn.close()
 
     if not voter:
-        return jsonify({'success': False, 'message': 'Invalid voter'})
+        return jsonify({'success': False, 'message': 'Invalid voter ID'})
 
     if voter['has_voted']:
-        return jsonify({'success': False, 'message': 'Already voted'})
+        return jsonify({'success': False, 'message': 'You have already voted'})
+
+    if not os.path.exists(TEMP_FOLDER):
+        os.makedirs(TEMP_FOLDER)
 
     captured_path = os.path.join(TEMP_FOLDER, f"{voter_id}.jpg")
     photo_file.save(captured_path)
 
     reference_image = os.path.join(backend_dir, voter['photo_path'])
 
+    if not os.path.exists(reference_image):
+        return jsonify({
+            "success": False,
+            "message": "Reference image not found for this voter"
+        })
+
     try:
         result = DeepFace.verify(
             img1_path=reference_image,
             img2_path=captured_path,
             model_name="ArcFace",
+            distance_metric="cosine",
             enforce_detection=False
         )
 
-        if result['verified']:
-            return jsonify({
-            "success": True,
-            "voter_id": voter_id,
-            "confidence": float(result["distance"])
-        })   
-        else:
+        distance = float(result["distance"])
+        print("Distance:", distance)
+
+        if distance <= 0.45:
             return jsonify({
                 "success": True,
                 "voter_id": voter_id,
-                "confidence": float(result["distance"])
-})
+                "confidence": distance
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Face does not match. Please try again.",
+                "confidence": distance
+            })
 
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -123,6 +139,7 @@ def cast_vote():
     conn.close()
 
     return jsonify({'success': True})
+
 @app.route('/api/results')
 def get_results():
     conn = get_db_connection()
@@ -140,7 +157,6 @@ def get_results():
     conn.close()
 
     return jsonify([dict(row) for row in results])
-
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
